@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flash Runtime Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ Flash Runtime Dashboard</h1>
+            <p class="subtitle">极速 Wasm Serverless 控制台</p>
+        </header>
+
+        <main>
+            <!-- Upload Section -->
+            <!-- Upload Section -->
+            <section class="card upload-section">
+                <h2>🚀 上传 Wasm 插件</h2>
+                <div class="form-group">
+                    <input type="file" id="wasmFile" accept=".wasm,.wat" style="margin-bottom: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="inputData" style="display:block; margin-bottom: 5px; color: #a0a0a0;">输入数据 (可选):</label>
+                    <textarea id="inputData" rows="4"
+                        style="width: 100%; background: #2a2a2a; border: 1px solid #333; color: #e0e0e0; padding: 10px; border-radius: 4px; margin-bottom: 15px;"
+                        placeholder='例如: Hello Wasm 或 {"key": "value"}'></textarea>
+                </div>
+                <button onclick="uploadWasm()" class="btn primary">运行 Wasm</button>
+
+                <div id="result" class="result-box" style="display: none;"></div>
+            </section>
+
+            <!-- Service Management Section -->
+            <section class="card service-section">
+                <h2>⚙️ 微服务管理 (Service Mode)</h2>
+
+                <!-- Deploy Service -->
+                <div class="service-deploy-box"
+                    style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #333;">
+                    <h3>部署新服务</h3>
+                    <div class="form-group" style="display: flex; gap: 10px; align-items: center;">
+                        <input type="file" id="serviceFile" accept=".wasm,.wat">
+                        <button onclick="deployService()" class="btn primary">部署服务</button>
+                    </div>
+                    <div id="deployResult" class="result-box" style="display: none;"></div>
+                </div>
+
+                <!-- Service List -->
+                <h3>运行中的服务</h3>
+                <div class="status-controls">
+                    <button id="refreshServicesBtn" class="btn secondary">刷新列表</button>
+                </div>
+                <table class="status-table">
+                    <thead>
+                        <tr>
+                            <th>服务 ID</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="serviceList">
+                        <!-- Services will be inserted here -->
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- Cluster Status Section -->
+            <section class="card status-section">
+                <h2>🖥️ 集群节点状态</h2>
+                <div class="status-controls">
+                    <button id="refreshBtn" class="btn secondary">刷新状态</button>
+                </div>
+                <table class="status-table">
+                    <thead>
+                        <tr>
+                            <th>节点地址</th>
+                            <th>状态</th>
+                            <th>最后心跳</th>
+                        </tr>
+                    </thead>
+                    <tbody id="nodeList">
+                        <!-- Nodes will be inserted here -->
+                    </tbody>
+                </table>
+            </section>
+        </main>
+    </div>
+
+    <!-- Logs Modal -->
+    <div id="logsModal" class="modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;">
+        <div class="modal-content"
+            style="background:#fff; margin:10% auto; padding:20px; width:80%; max-width:800px; border-radius:8px; position:relative; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <span class="close" onclick="closeLogs()"
+                style="position:absolute; top:10px; right:20px; font-size:24px; cursor:pointer; color:#666;">&times;</span>
+            <h3 id="logsTitle" style="margin-top:0; color:#333;">Service Logs</h3>
+            <pre id="logsContent"
+                style="background:#1e1e1e; color:#d4d4d4; padding:15px; height:400px; overflow-y:scroll; white-space:pre-wrap; border-radius:4px; font-family:monospace; font-size:14px;"></pre>
+        </div>
+    </div>
+
+    <!-- Invoke Modal -->
+    <div id="invokeModal" class="modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;">
+        <div class="modal-content"
+            style="background:#fff; margin:10% auto; padding:20px; width:500px; border-radius:8px; position:relative; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <span class="close" onclick="closeInvoke()"
+                style="position:absolute; top:10px; right:20px; font-size:24px; cursor:pointer; color:#666;">&times;</span>
+            <h3 style="margin-top:0; color:#333;">Invoke Service Method</h3>
+            <input type="hidden" id="invokeServiceId">
+
+            <div class="form-group">
+                <label style="display:block; margin-bottom:5px; color:#333;">Method:</label>
+                <input type="text" id="invokeMethod" placeholder="e.g. add"
+                    style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px;">
+            </div>
+
+            <div class="form-group" style="margin-top:15px;">
+                <label style="display:block; margin-bottom:5px; color:#333;">Params (JSON):</label>
+                <textarea id="invokeParams" rows="4" placeholder='e.g. {"a": 1, "b": 2}'
+                    style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px; font-family:monospace;"></textarea>
+            </div>
+
+            <button onclick="performInvoke()" class="btn primary" style="margin-top:20px; width:100%;">Send
+                Request</button>
+
+            <div id="invokeResult"
+                style="margin-top:15px; display:none; padding:10px; background:#2f2e2e; border-radius:4px; word-break:break-all;">
+            </div>
+        </div>
+    </div>
+    <script>
+        // Simple script to handle UI logic
+        const nodeList = document.getElementById('nodeList');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const serviceList = document.getElementById('serviceList');
+        const refreshServicesBtn = document.getElementById('refreshServicesBtn');
+
+        // FaaS Mode Logic
+        async function uploadWasm() {
+            const fileInput = document.getElementById('wasmFile');
+            const inputData = document.getElementById('inputData').value;
+            const outputDiv = document.getElementById('output');
+
+            if (fileInput.files.length === 0) {
+                alert('Please select a Wasm file');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('input', inputData);
+
+            outputDiv.style.display = 'block';
+            outputDiv.className = 'result-box'; // Reset class
+            outputDiv.textContent = 'Running...';
+
+            try {
+                const response = await fetch('/run_with_input', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    outputDiv.className = 'result-box success';
+                    outputDiv.innerHTML = `
+                        <strong>Output:</strong><br>
+                        <pre>${JSON.stringify(result.output, null, 2)}</pre>
+                        <br>
+                        <small>Execution Time: ${result.execution_time}</small>
+                    `;
+                } else {
+                    outputDiv.className = 'result-box error';
+                    outputDiv.innerHTML = `Error: ${result.error}`;
+                }
+            } catch (error) {
+                outputDiv.className = 'result-box error';
+                outputDiv.innerHTML = `Network Error: ${error.message}`;
+            }
+        }
+
+        const API_BASE = ''; // Assuming API is on the same host, adjust if needed
+        let logPollInterval = null;
+
+        // Service Mode Logic
+        async function deployService() {
+            const fileInput = document.getElementById('serviceFile');
+            const resultDiv = document.getElementById('deployResult');
+
+            if (fileInput.files.length === 0) {
+                alert('Please select a Wasm file');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result-box';
+            resultDiv.textContent = 'Deploying...';
+
+            try {
+                const response = await fetch(`${API_BASE}/deploy`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    resultDiv.className = 'result-box success';
+                    resultDiv.innerHTML = `Service Deployed! ID: <strong>${result.service_id}</strong>`;
+                    fetchServices(); // Refresh list
+                } else {
+                    resultDiv.className = 'result-box error';
+                    resultDiv.innerHTML = `Error: ${result.error}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result-box error';
+                resultDiv.innerHTML = `Network Error: ${error.message}`;
+            }
+        }
+
+        async function fetchServices() {
+            try {
+                const response = await fetch(`${API_BASE}/services`);
+                const data = await response.json();
+                renderServices(data.services || []);
+            } catch (err) {
+                console.error('Failed to fetch services:', err);
+            }
+        }
+
+        async function stopService(id) {
+            if (!confirm(`Stop service ${id}?`)) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/services/${id}/stop`, { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    fetchServices();
+                } else {
+                    alert('Failed to stop service: ' + result.error);
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+            }
+        }
+
+        function renderServices(services) {
+            if (services.length === 0) {
+                serviceList.innerHTML = '<tr><td colspan="3" style="text-align:center; color: #666;">暂无运行中的服务</td></tr>';
+                return;
+            }
+            serviceList.innerHTML = services.map(svc => `
+                <tr>
+                    <td><span style="font-family: monospace;">${svc.service_id}</span></td>
+                    <td><span class="badge ${svc.status === 'Running' ? 'success' : 'error'}">${svc.status}</span></td>
+                    <td>
+                        <button onclick="openInvoke('${svc.service_id}')" class="btn" style="padding: 4px 8px; font-size: 12px; margin-right:5px; background-color: #9C27B0; color: white; border: none;">调用</button>
+                        <button onclick="showLogs('${svc.service_id}')" class="btn" style="padding: 4px 8px; font-size: 12px; margin-right:5px; background-color: #2196F3; color: white; border: none;">日志</button>
+                        <button onclick="stopService('${svc.service_id}')" class="btn danger" style="padding: 4px 8px; font-size: 12px;">停止</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Status Logic
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                renderNodes(data.nodes);
+            } catch (err) {
+                console.error('Failed to fetch status:', err);
+            }
+        }
+
+        function renderNodes(nodes) {
+            nodeList.innerHTML = nodes.map(node => `
+                <tr>
+                    <td>${node.address}</td>
+                    <td><span class="badge ${node.status === 'Healthy' ? 'success' : 'error'}">${node.status}</span></td>
+                    <td>${node.last_heartbeat}</td>
+                </tr>
+            `).join('');
+        }
+
+        refreshBtn.addEventListener('click', fetchStatus);
+        refreshServicesBtn.addEventListener('click', fetchServices);
+
+        // Initial load
+        fetchStatus();
+        async function fetchServices() {
+            try {
+                const response = await fetch(`${API_BASE}/services`);
+                const data = await response.json();
+                renderServices(data.services || []);
+            } catch (err) {
+                console.error('Failed to fetch services:', err);
+            }
+        }
+
+        // Log Functions
+        function showLogs(id) {
+            document.getElementById('logsModal').style.display = 'block';
+            document.getElementById('logsTitle').innerText = `Logs: ${id}`;
+            document.getElementById('logsContent').innerText = 'Loading...';
+
+            fetchLogs(id);
+            if (logPollInterval) clearInterval(logPollInterval);
+            logPollInterval = setInterval(() => fetchLogs(id), 2000);
+        }
+
+        function closeLogs() {
+            document.getElementById('logsModal').style.display = 'none';
+            if (logPollInterval) clearInterval(logPollInterval);
+        }
+
+        async function fetchLogs(id) {
+            try {
+                const response = await fetch(`${API_BASE}/services/${id}/logs`);
+                const result = await response.json();
+                const content = document.getElementById('logsContent');
+                if (result.error) {
+                    content.innerText = 'Error: ' + result.error;
+                } else {
+                    const wasScrolledToBottom = content.scrollHeight - content.scrollTop === content.clientHeight;
+                    content.innerText = result.logs || '(No logs yet)';
+                    if (wasScrolledToBottom) {
+                        content.scrollTop = content.scrollHeight;
+                    }
+                }
+            } catch (e) {
+                console.error('Log fetch failed', e);
+            }
+        }
+
+        // Invoke Logic
+        function openInvoke(id) {
+            document.getElementById('invokeModal').style.display = 'block';
+            document.getElementById('invokeServiceId').value = id;
+            document.getElementById('invokeResult').style.display = 'none';
+            document.getElementById('invokeMethod').value = '';
+            document.getElementById('invokeParams').value = '';
+        }
+
+        function closeInvoke() {
+            document.getElementById('invokeModal').style.display = 'none';
+        }
+
+        async function performInvoke() {
+            const id = document.getElementById('invokeServiceId').value;
+            const method = document.getElementById('invokeMethod').value;
+            const paramsStr = document.getElementById('invokeParams').value;
+            const resultDiv = document.getElementById('invokeResult');
+
+            let params;
+            try {
+                params = paramsStr ? JSON.parse(paramsStr) : {};
+            } catch (e) {
+                alert('Invalid JSON params');
+                return;
+            }
+
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = 'Invoking...';
+            resultDiv.className = ''; // Reset
+
+            try {
+                const response = await fetch(`${API_BASE}/services/${id}/invoke`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ method, params })
+                });
+                const result = await response.json();
+
+                if (result.error) {
+                    resultDiv.className = 'result-box error';
+                    resultDiv.innerHTML = `<strong>Error:</strong><pre class="error">${result.error}</pre>`;
+                } else {
+                    resultDiv.className = 'result-box success';
+                    // Check if result is primitive or object
+                    let displayResult = result.result;
+                    if (typeof displayResult === 'object') {
+                        displayResult = JSON.stringify(displayResult, null, 2);
+                    }
+                    resultDiv.innerHTML = `<strong>Result:</strong><pre>${displayResult}</pre>`;
+                }
+            } catch (e) {
+                resultDiv.className = 'result-box error';
+                resultDiv.innerHTML = `<strong>Network Error:</strong><pre class="error">${e.message}</pre>`;
+            }
+        }
+    </script>
+</body>
+
+</html>

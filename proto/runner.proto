@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package runner;
+
+option go_package = "./pb";
+
+service RunnerService {
+  rpc Execute (ExecuteRequest) returns (ExecuteResponse);
+  rpc DeployService (DeployRequest) returns (DeployResponse);
+  rpc StopService (StopRequest) returns (StopResponse);
+  rpc ListServices (ListRequest) returns (ListResponse);
+  rpc GetLogs (GetLogsRequest) returns (GetLogsResponse);
+  rpc InvokeService (InvokeRequest) returns (InvokeResponse);
+}
+
+message ExecuteRequest {
+  bytes wasm_binary = 1;
+  bytes input_data = 2;
+}
+
+message ExecuteResponse {
+  bytes output_data = 1;
+  string error = 2;
+  int64 execution_time_ns = 3;
+}
+
+message DeployRequest {
+  bytes wasm_binary = 1;
+}
+
+message DeployResponse {
+  string service_id = 1;
+  string error = 2;
+}
+
+message StopRequest {
+  string service_id = 1;
+}
+
+message StopResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message ListRequest {}
+
+message ServiceInfo {
+  string service_id = 1;
+  string status = 2;
+}
+
+message GetLogsRequest {
+  string service_id = 1;
+}
+
+message GetLogsResponse {
+  string logs = 1;
+  string error = 2;
+}
+
+message ListResponse {
+  repeated ServiceInfo services = 1;
+}
+
+message InvokeRequest {
+  string service_id = 1;
+  string method = 2;
+  string params = 3;
+}
+
+message InvokeResponse {
+  string result = 1;
+  string error = 2;
+}

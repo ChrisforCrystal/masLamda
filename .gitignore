@@ -1,0 +1,48 @@
+# System
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Rust
+/target/
+**/target/
+**/*.rs.bk
+# Cargo.lock # Uncomment if you want to ignore lock file (usually committed for binaries)
+
+# Go
+/bin/
+/pkg/
+/src/
+*.exe
+*.test
+*.prof
+vendor/
+go.work
+
+# Web
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Project Specific Logs
+*.log
+logs/
+flash-runner/logs/
+runner_debug.log
+controller.log
+runner.log
+
+# Wasm Artifacts (Optional: comment out if you want to commit specific wasm files)
+*.wasm
+*.wat
+
+# Temporary files
+tmp/
+temp/
