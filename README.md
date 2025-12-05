@@ -72,6 +72,33 @@ go run main.go
   # 预期: 返回 "all fuel consumed" 错误
   ```
 
+- **验证服务模式 (Service Mode)**:
+  ```bash
+  ./test_service_mode.sh
+  # 验证完整的服务生命周期：部署 -> 调用 -> 停止
+  ```
+
+## 📡 API 使用示例
+
+### 1. 部署服务
+```bash
+curl -X POST http://localhost:8999/deploy \
+  -F "file=@calculator.wasm"
+# 返回: {"id": "service-uuid", "status": "Running"}
+```
+
+### 2. 调用服务 (JSON-RPC)
+```bash
+curl -X POST http://localhost:8999/services/<SERVICE_ID>/invoke \
+  -d '{"method": "add", "params": {"a": 1, "b": 2}}'
+# 返回: {"jsonrpc": "2.0", "id": "...", "result": 3}
+```
+
+### 3. 停止服务
+```bash
+curl -X POST http://localhost:8999/services/<SERVICE_ID>/stop
+```
+
 ## 📂 项目结构
 
 ```text
