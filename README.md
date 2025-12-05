@@ -80,6 +80,16 @@ go run main.go
 
 ## 📡 API 使用示例
 
+### 0. 准备 Wasm 产物 (编译示例)
+在使用 API 之前，你需要先编译示例项目 (Calculator) 生成 `.wasm` 文件：
+
+```bash
+cd calculator
+cargo build --target wasm32-wasi --release
+cp target/wasm32-wasi/release/calculator.wasm ../
+cd ..
+```
+
 ### 1. 部署服务
 ```bash
 curl -X POST http://localhost:8999/deploy \
