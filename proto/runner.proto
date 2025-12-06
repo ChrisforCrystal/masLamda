@@ -26,6 +26,7 @@ message ExecuteResponse {
 
 message DeployRequest {
   bytes wasm_binary = 1;
+  map<string, string> env = 2;
 }
 
 message DeployResponse {

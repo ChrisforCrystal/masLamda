@@ -169,12 +169,28 @@ func main() {
 			return
 		}
 
+		// 1.5 解析环境变量 (以 env_ 开头的字段)
+		// 例如: -F "env_API_KEY=123" -> {"API_KEY": "123"}
+		envVars := make(map[string]string)
+		if c.Request.MultipartForm != nil {
+			for key, values := range c.Request.MultipartForm.Value {
+				if len(key) > 4 && key[:4] == "env_" {
+					if len(values) > 0 {
+						envName := key[4:]
+						envVars[envName] = values[0]
+						log.Printf("Found env var: %s=%s", envName, values[0])
+					}
+				}
+			}
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		// gRPC 调用: 部署服务
 		resp, err := client.DeployService(ctx, &pb.DeployRequest{
 			WasmBinary: wasmBytes,
+			Env:        envVars, // 传递环境变量
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

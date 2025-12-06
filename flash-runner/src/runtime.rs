@@ -121,6 +121,49 @@ impl WasmRuntime {
                 })
             },
         )?;
+
+        // 注册 http_post 函数
+        // 参数: url_ptr, url_len, body_ptr, body_len
+        linker.func_wrap4_async(
+            "env",
+            "http_post",
+            |mut caller: wasmtime::Caller<'_, WasiHostState>,
+             url_ptr: i32,
+             url_len: i32,
+             body_ptr: i32,
+             body_len: i32| {
+                Box::new(async move {
+                    // 1. 获取内存
+                    let mem = match caller.get_export("memory") {
+                        Some(wasmtime::Extern::Memory(mem)) => mem,
+                        _ => return -1,
+                    };
+                    let (memory, state) = mem.data_and_store_mut(&mut caller);
+
+                    // 2. 读取 URL
+                    let url = match memory.get(url_ptr as usize..(url_ptr + url_len) as usize) {
+                        Some(bytes) => match std::str::from_utf8(bytes) {
+                            Ok(s) => s.to_string(),
+                            Err(_) => return -3,
+                        },
+                        None => return -2,
+                    };
+
+                    // 3. 读取 Body
+                    let body = match memory.get(body_ptr as usize..(body_ptr + body_len) as usize) {
+                        Some(bytes) => bytes.to_vec(), // 拷贝为 Vec<u8>
+                        None => return -2,
+                    };
+
+                    // 4. 发送 POST 请求
+                    let client = state.host.http_client.clone();
+                    match client.post(&url).body(body).send().await {
+                        Ok(resp) => resp.status().as_u16() as i32,
+                        Err(_) => -4,
+                    }
+                })
+            },
+        )?;
         Ok(())
     }
 
@@ -130,6 +173,7 @@ impl WasmRuntime {
         &self,
         service_id: &str,
         wasm_binary: &[u8],
+        env: HashMap<String, String>, // 新增: 环境变量
     ) -> Result<(
         Store<WasiHostState>,
         wasmtime::Instance,
@@ -178,10 +222,12 @@ impl WasmRuntime {
         let cap_log = cap_std::fs::File::from_std(log_file);
         let wasi_stderr = wasmtime_wasi::sync::file::File::from_cap_std(cap_log);
 
+        let env_vec: Vec<(String, String)> = env.into_iter().collect();
         let wasi = wasmtime_wasi::tokio::WasiCtxBuilder::new()
             .stdin(Box::new(wasi_stdin))
             .stdout(Box::new(wasi_stdout))
             .stderr(Box::new(wasi_stderr))
+            .envs(&env_vec)? // 注入环境变量
             .build();
 
         let mut store = Store::new(

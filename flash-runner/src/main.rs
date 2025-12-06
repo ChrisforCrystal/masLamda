@@ -103,7 +103,7 @@ impl RunnerService for MyRunner {
 
         // 1. 准备环境 (编译 + 实例化 + 管道)
         let (mut store, instance, log_path, stdin_file, stdout_file) = runtime
-            .prepare_service(&service_id, &req.wasm_binary)
+            .prepare_service(&service_id, &req.wasm_binary, req.env)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
