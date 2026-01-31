@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kata-file-transfer
+  namespace: default
+spec:
+  # 强制调度到支持 KVM 的节点
+  nodeName: 10.23.99.50
+  containers:
+    - name: transfer
+      image: image.midea.com/midea-middleware/busybox@sha256:455a9a6e082bacf9c02c39ab21a795d4cb05d7398fe34d0a6da23fed18a6a5f6
+      command: ["sleep", "3600"]
+      volumeMounts:
+        - name: kata-install
+          mountPath: /opt/kata
+      securityContext:
+        privileged: true
+  volumes:
+    - name: kata-install
+      hostPath:
+        path: /opt/kata
+        type: DirectoryOrCreate
+  restartPolicy: Never

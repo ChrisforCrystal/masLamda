@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inspect-kata-install2
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      hostPID: true
+      nodeName: 10.23.99.50 # 指定到出问题的节点
+      containers:
+        - name: inspector
+          image: image.midea.com/midea-middleware/busybox@sha256:455a9a6e082bacf9c02c39ab21a795d4cb05d7398fe34d0a6da23fed18a6a5f6
+          securityContext:
+            privileged: true
+          command:
+            [
+              "sh",
+              "-c",
+              "echo '=== Checking /opt/kata/ ===' && ls -la /opt/kata/bin/ 2>&1 || echo 'Not found'; echo '=== Checking /usr/local/bin ===' && ls -la /usr/local/bin/containerd-shim* 2>&1 || echo 'Not found'; echo '=== Checking PATH ===' && echo $PATH",
+            ]
+          volumeMounts:
+            - name: opt-kata
+              mountPath: /opt/kata
+            - name: usr-local-bin
+              mountPath: /usr/local/bin
+      volumes:
+        - name: opt-kata
+          hostPath:
+            path: /opt/kata
+        - name: usr-local-bin
+          hostPath:
+            path: /usr/local/bin
+      restartPolicy: Never

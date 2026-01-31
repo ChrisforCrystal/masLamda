@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: verify-vmware-kata-capability
+  namespace: default
+spec:
+  template:
+    spec:
+      hostPID: true
+      hostNetwork: true
+      containers:
+        - name: check
+          image: alpine:latest
+          securityContext:
+            privileged: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "🔍 Checking Node Capability for Kata (Nested Virtualization)..."
+
+              # 1. Check CPU Flags
+              if grep -E "vmx|svm" /proc/cpuinfo > /dev/null; then
+                echo "✅ CPU Virtualization (VT-x/AMD-V) DETECTED."
+              else
+                echo "❌ CPU Virtualization NOT detected."
+                echo "   -> This means VMware 'Nested Virtualization' is OFF."
+                echo "   -> Kata will NOT work."
+                exit 1
+              fi
+
+              # 2. Check /dev/kvm
+              if [ -e /dev/kvm ]; then
+                echo "✅ /dev/kvm exists."
+              else
+                echo "⚠️ /dev/kvm missing. Trying to load module..."
+                nsenter -t 1 -m -u -n -i -- modprobe kvm || true
+                if [ -e /dev/kvm ]; then
+                   echo "✅ /dev/kvm loaded successfully."
+                else
+                   echo "❌ Failed to load kvm module."
+                   echo "   -> Even if CPU supports it, the Kernel module is missing."
+                   exit 1
+                fi
+              fi
+
+              echo "🎉 SUCCESS: This VMware Node is ready for Kata!"
+      restartPolicy: Never
+  backoffLimit: 0

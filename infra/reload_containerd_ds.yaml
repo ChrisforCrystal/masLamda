@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: reload-containerd-global
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: reload-containerd-global
+  template:
+    metadata:
+      labels:
+        name: reload-containerd-global
+    spec:
+      hostPID: true
+      containers:
+        - name: reloader
+          image: image.midea.com/midea-middleware/busybox@sha256:455a9a6e082bacf9c02c39ab21a795d4cb05d7398fe34d0a6da23fed18a6a5f6
+          securityContext:
+            privileged: true
+          command:
+            - sh
+            - -c
+            - |
+              echo "🔄 Pod Started on $(hostname)"
+              echo "👉 Sending SIGHUP to containerd..."
+              pkill -HUP containerd
+              if [ $? -eq 0 ]; then
+                 echo "✅ Successfully signaled containerd!"
+              else
+                 echo "❌ Failed to signal containerd (Process not found?)"
+              fi
+              # Sleep to keep pod running briefly so we can see logs, then exit (DS will restart it but that's fine for a one-off)
+              sleep 10
+      terminationGracePeriodSeconds: 0

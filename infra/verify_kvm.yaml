@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: verify-kvm-support
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      hostPID: true # 允许查看宿主机进程
+      containers:
+        - name: inspector
+          # Updated to use private registry image
+          image: image.midea.com/midea-middleware/busybox@sha256:455a9a6e082bacf9c02c39ab21a795d4cb05d7398fe34d0a6da23fed18a6a5f6
+          securityContext:
+            privileged: true # 关键：特权模式，允许访问宿主机设备
+          command:
+            - sh
+            - -c
+            - |
+              echo "🔍 Checking KVM Support on Node: $NODE_NAME"
+              echo "--------------------------------------------"
+
+              # 1. Check CPU Architecture
+              ARCH=$(uname -m)
+              echo "👉 Architecture: $ARCH"
+
+              # 2. Check /dev/kvm
+              if [ -c /dev/kvm ]; then
+                echo "✅ /dev/kvm exists! (Hardware Virtualization Supported)"
+              else
+                echo "❌ /dev/kvm NOT found."
+                # Check if it's just a missing module
+                if lsmod | grep -q kvm; then
+                   echo "   (But 'kvm' module is loaded. Maybe permission issue?)"
+                else
+                   echo "   (KVM module not loaded)"
+                fi
+                echo "   ⚠️ Kata+Firecracker might NOT work here. You may need to use QEMU software emulation."
+              fi
+
+              echo "--------------------------------------------"
+              echo "📋 Kernel Version:"
+              uname -r
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: dev-dir
+              mountPath: /dev
+      restartPolicy: Never
+      volumes:
+        - name: dev-dir
+          hostPath:
+            path: /dev

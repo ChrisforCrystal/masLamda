@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: recover-nodes
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: recover-nodes
+  template:
+    metadata:
+      labels:
+        name: recover-nodes
+    spec:
+      hostPID: true
+      hostNetwork: true
+      # Add tolerations so it schedules even on dead nodes
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/memory-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: rescuer
+          image: image.midea.com/midea-middleware/busybox@sha256:455a9a6e082bacf9c02c39ab21a795d4cb05d7398fe34d0a6da23fed18a6a5f6
+          securityContext:
+            privileged: true
+          command:
+            - sh
+            - -c
+            - |
+              echo "🚑 Attempting to recover Containerd on $(hostname)..."
+
+              # Try using nsenter to access systemd on the host (PID 1)
+              # Note: nsenter might need to be in /usr/bin or /bin
+              if nsenter -t 1 -m -u -n -i -- systemctl restart containerd; then
+                 echo "✅ Recovered via systemctl!"
+                 sleep 3600
+                 exit 0
+              fi
+
+              echo "⚠️ systemctl failed. Checking if dockerd manages it..."
+              if nsenter -t 1 -m -u -n -i -- systemctl restart docker; then
+                 echo "✅ Recovered via docker restart!"
+                 sleep 3600
+                 exit 0
+              fi
+
+              echo "❌ Failed to recover. Listing processes..."
+              ps aux | grep containerd
+              sleep 3600
+      terminationGracePeriodSeconds: 0

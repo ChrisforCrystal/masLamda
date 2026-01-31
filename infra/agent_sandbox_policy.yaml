@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-sandbox-demo
+  labels:
+    app: agent-sandbox
+    env: production
+  annotations:
+    # 限制网络带宽 (需 CNI 支持)
+    kubernetes.io/egress-bandwidth: "10M"
+    kubernetes.io/ingress-bandwidth: "10M"
+spec:
+  runtimeClassName: kata-qemu
+
+  # 1. 生命周期控制: 1小时后强制杀死
+  activeDeadlineSeconds: 3600
+
+  # 2. 进程数限制: 防止 Fork Bomb
+  pidsLimit: 100
+
+  # 3. 安全上下文: 非 Root 运行，只读根目录
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 3000
+    runAsNonRoot: true
+    fsGroup: 3000
+
+  containers:
+    - name: agent-runner
+      image: python:3.10-slim
+      command: ["python3", "-u", "agent_script.py"]
+
+      # 4. 计算资源限制
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
+
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+
+      # 5. 存储限制: 仅允许在受限的 emptyDir 中写文件
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: tmp
+          mountPath: /tmp
+
+  volumes:
+    - name: workspace
+      emptyDir:
+        sizeLimit: "1Gi" # 限制工作区最大 1GB
+    - name: tmp
+      emptyDir:
+        sizeLimit: "512Mi" # 限制临时目录最大 512MB
+
+  restartPolicy: Never
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-sandbox-deny-all
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-sandbox
+  policyTypes:
+    - Ingress
+    - Egress
+  # 默认拒绝所有入站和出站流量 (除非有显式 Allow 规则)
