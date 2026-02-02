@@ -2,11 +2,70 @@ from fastapi import FastAPI, WebSocket, HTTPException
 import uuid
 import asyncio
 import json
+from typing import Optional
+from fastapi import FastAPI, WebSocket, HTTPException, Header
+from pydantic import BaseModel, Field
+import uuid
+import asyncio
 from .backends.k8s_backend import K8SBackend
+from .backends.vllm_backend import VLLMBackend
+from .backends.sglang_backend import SGLangBackend
 
 app = FastAPI()
-# 初始化 Kubernetes 后端，用于和 K8s API Server 交互
+
+# --- Backends ---
+# 1. K8s Backend (Sandbox Execution)
 k8s = K8SBackend()
+
+# 2. Inference Backends (Model Serving)
+vllm = VLLMBackend(endpoint="http://localhost:8000/v1/chat/completions")
+sglang = SGLangBackend(endpoint="http://localhost:8001/v1/chat/completions")
+
+# --- Interface Models ---
+class ChatCompletionRequest(BaseModel):
+    model: str
+    messages: list
+    max_tokens: Optional[int] = 100
+    stream: bool = False
+
+# [API] Inference Routing
+# Routes requests to either vLLM or SGLang based on headers
+@app.post("/v1/chat/completions")
+async def chat_completions(
+    req: ChatCompletionRequest, 
+    x_backend: str = Header("vllm", alias="x-backend")
+):
+    print(f"🔹 Routing Inference Request to: {x_backend.upper()}")
+    
+    # Select Backend
+    backend = None
+    if x_backend == "sglang":
+        backend = sglang
+    else:
+        backend = vllm # Default
+        
+    # Forward Request (Simplified Proxy)
+    # Ideally should stream back, but for MVP we wait and return simplified JSON
+    # Reusing the 'exec_command' interface which acts as 'prompt' interface for LLMs
+    last_msg = req.messages[-1]["content"] if req.messages else ""
+    
+    # We use the existing 'exec_command' logic of the backend which performs the HTTP call
+    resp_content = await backend.exec_command("virtual-pod", last_msg)
+    
+    return {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion",
+        "created": 1234567890,
+        "model": req.model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": resp_content
+            },
+            "finish_reason": "stop"
+        }]
+    }
 
 # 简单的内存会话存储
 # 生产环境通常会使用 Redis 或数据库来存储 SandboxID 到 Pod 的映射关系

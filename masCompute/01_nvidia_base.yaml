@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: DaemonSet # 守护进程集：确保K8s集群中每一个（或符合条件的）节点上都运行一个副本
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      # 容忍度设置：允许该Pod调度到带有 "nvidia.com/gpu" 污点的节点上
+      # 通常GPU节点会被打上污点以防止普通Pod占用，Device Plugin必须能容忍这个污点
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - image: nvcr.io/nvidia/k8s-device-plugin:v0.14.0
+          name: nvidia-device-plugin-ctr
+          # 安全上下文：最小权限原则
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"] # 丢弃所有Linux Capabilities，提高安全性
+          # 挂载卷：Device Plugin 需要与 Kubelet 通信
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins # 注册Socket文件的标准路径
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins

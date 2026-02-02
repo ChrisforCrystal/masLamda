@@ -1,0 +1,90 @@
+apiVersion: ray.io/v1
+kind: RayCluster # Ray 集群 CRD：定义了一个完整的分布式计算集群
+metadata:
+  name: ray-gpu-cluster-01
+  namespace: ray-system
+spec:
+  rayVersion: "2.9.0"
+  # Integration: Layer 3 - Use Volcano for Batch Scheduling
+  headGroupSpec:
+    # ... (Head 节点配置，通常只负责管理，不跑重型训练)
+    template:
+      metadata:
+        annotations:
+          # 【关键】绑定队列：告诉 Volcano 这个 Pod 属于 "team-search" 队列
+          # 它的资源消耗会计入 Team Search 的 60% 配额中
+          volcano.sh/queue-name: "team-search"
+      spec:
+        schedulerName: volcano # 指定调度器为 Volcano (而不是 K8s default scheduler)
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.9.0-py310
+            resources:
+              requests:
+                cpu: "2"
+                memory: "4Gi"
+  workerGroupSpecs:
+    # Group 1: Hami
+    - replicas: 4 # 申请 4 个 Worker
+      minReplicas: 1
+      maxReplicas: 10
+      groupName: gpu-group
+      rayStartParams: {}
+      template:
+        metadata:
+          annotations:
+            # 【关键】Worker 也要绑定同一个队列
+            volcano.sh/queue-name: "team-search"
+        spec:
+          schedulerName: volcano # 集成 Volcano
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.9.0-py310-gpu
+              resources:
+                limits:
+                  # Integration: Layer 2 - Hami vGPU
+                  # 显式申请 10GB 显存。
+                  # Hami 会拦截 CUDA 调用，确保还没超过 10GB。
+                  hami.io/vgpu-memory: "10000"
+                  # 申请 50% 算力。
+                  hami.io/vgpu-cores: "50"
+                  # 注意：这里不再写 nvidia.com/gpu: 1，因为那样代表要一张完整的卡
+                requests:
+                  cpu: "4"
+                  memory: "16Gi"
+          tolerations:
+            # 容忍 GPU 节点的污点，允许调度上去
+            - key: "nvidia.com/gpu"
+              operator: "Exists"
+              effect: "NoSchedule"
+    # Group 2: Huawei Ascend NPU Workers (异构算力组)
+    # 本组定义了使用国产化硬件的 Worker，与上面的 NVIDIA 组并存
+    - replicas: 2 # 初始启动 2 个 NPU Worker
+      minReplicas: 0
+      maxReplicas: 5
+      groupName: ascend-group # 组名，Ray Dashboard 里可以看到
+      rayStartParams: {}
+      template:
+        metadata:
+          annotations:
+            # 统一队列管理：即使是异构硬件，也归 Search 团队统一配额管理
+            volcano.sh/queue-name: "team-search"
+        spec:
+          schedulerName: volcano
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.9.0-py310 # 注意：生产环境请替换为支持 Ascend CANN 的定制镜像
+              resources:
+                limits:
+                  # Huawei NPU Resource key
+                  # 对应 K8s Node 上 Device Plugin 上报的资源名
+                  huawei.com/Ascend910: "1"
+                requests:
+                  cpu: "4"
+                  memory: "16Gi"
+                  huawei.com/Ascend910: "1"
+          tolerations:
+            # 华为 NPU 节点的污点（Taint），通常不同于 NVIDIA
+            - key: "huawei.com/Ascend910"
+              operator: "Exists"
+              effect: "NoSchedule"

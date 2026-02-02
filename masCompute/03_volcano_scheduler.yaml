@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: volcano-scheduler
+  namespace: volcano-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: volcano-scheduler
+  template:
+    metadata:
+      labels:
+        app: volcano-scheduler
+    spec:
+      serviceAccountName: volcano-scheduler
+      containers:
+        - name: volcano-scheduler
+          image: volcanosh/vc-scheduler:v1.9.0
+          args:
+            - --logtostderr
+            - --scheduler-conf=/volcano.scheduler/volcano-scheduler.conf
+            - --enable-healthz=true
+            - --enable-metrics=true
+            - --leader-elect=false
+          volumeMounts:
+            - name: scheduler-config
+              mountPath: /volcano.scheduler
+      volumes:
+        - name: scheduler-config
+          configMap:
+            name: volcano-scheduler-configmap
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volcano-scheduler-configmap
+  namespace: volcano-system
+data:
+  volcano-scheduler.conf: |
+    # Actions: 调度动作流
+    # 1. Enqueue: 任务入队，负责管理 Quota (配额管控)
+    # 2. Allocate: 具体的分配逻辑 (核心阶段)
+    # 3. Backfill: 回填，利用小任务填充大任务留下的碎片时间
+    actions: "enqueue, allocate, backfill"
+    tiers:
+    - plugins:
+      - name: priority   # 优先级插件
+      - name: gang       # 【核心】Gang 调度：All-or-Nothing
+                         # 确保这一组 Pod 要么全起，要么一个都不起，防止资源死锁。
+      - name: conformance
+    - plugins:
+      - name: drf        # 【核心】DRF (Dominant Resource Fairness)
+                         # 主导资源公平算法：保证不同部门/租户公平瓜分资源，
+                         # 避免某个部门把 GPU 占完了，另一个部门连 CPU 都申请不到。
+      - name: predicates # 预选：检查节点是否满足要求 (Check GPU/Memory)
+      - name: proportion # 队列比例管控：Queue A 占 60%，Queue B 占 40%
+      - name: nodeorder  # 优选：给节点打分
+      - name: binpack    # 【核心】Binpack (装箱)：尽量把节点填满，避免碎片

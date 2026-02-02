@@ -1,0 +1,47 @@
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: team-search
+spec:
+  weight: 60 # 权重 60。当资源紧张时，应该获得 60% 的份额
+  capability:
+    cpu: "60"
+    memory: "120Gi"
+    nvidia.com/gpu: "6" # 硬顶：最多只能用 6 张卡
+  reclaimable: true # 如果我没用完，允许借给别的队列用
+
+---
+apiVersion: scheduling.volcano.sh/v1beta1
+kind: Queue
+metadata:
+  name: team-ads
+spec:
+  weight: 40 # 权重 40
+  capability:
+    cpu: "40"
+    memory: "80Gi"
+    nvidia.com/gpu: "4" # 硬顶：最多 4 张卡
+  reclaimable: true
+
+---
+# 提交 Job 时指定 queue
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: search-ranking-job
+  namespace: default
+spec:
+  queue: team-search # 【关键】指定我是搜广推团队的
+  schedulerName: volcano
+  minAvailable: 1
+  tasks:
+    - replicas: 1
+      name: trainer
+      template:
+        spec:
+          containers:
+            - image: nginx
+              name: nginx
+              resources:
+                requests:
+                  nvidia.com/gpu: "1"
