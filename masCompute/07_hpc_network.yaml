@@ -1,0 +1,41 @@
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+# CRD 作用：定义一张 "额外的网卡"。
+# 在 Pod 启动时，K8s 会根据这个定义，给 Pod 插上第二张网卡 (net1)
+metadata:
+  name: rdma-net
+  namespace: ray-system # 必须和 RayCluster 在同一个 Namespace
+spec:
+  # config 是 standard CNI JSON 格式
+  config: '{
+    "cniVersion": "0.3.1",
+    # type: 决定了这张网卡怎么造出来
+    # - macvlan: 从物理网卡 eth1 虚拟出一个带独立 MAC 地址的子接口，性能极高 (接近物理卡)，常用于模拟高性能网络。
+    # - host-device: (更硬核) 直接把物理网卡 /dev/ib0 塞进 Pod，没有虚拟化损耗，RDMA 必选。
+    "type": "macvlan",
+
+    # master: 宿主机上的物理网卡名字。意思是这张新网卡是寄生在宿主机 eth1 上的。
+    "master": "eth1",
+
+    "mode": "bridge",
+    "ipam": {
+    "type": "host-local", # IP 地址管理：由本机插件分配
+    "subnet": "192.168.100.0/24",
+    "rangeStart": "192.168.100.100",
+    "rangeEnd": "192.168.100.200",
+    "routes": [
+    { "dst": "0.0.0.0/0" }
+    ],
+    "gateway": "192.168.100.1"
+    }
+    }'
+# 注意：在真实 RDMA 环境中，通常使用 "type": "host-device" 来直接挂载 /dev/infiniband/uverbs0
+# 这里为了通用演示，使用了 macvlan 模拟第二张网卡。
+# 真实的 host-device 配置如下(注释供参考):
+# spec:
+#   config: '{
+#       "cniVersion": "0.3.1",
+#       "type": "host-device",
+#       "device": "ib0",
+#       "ipam": { "type": "dhcp" }
+#   }'

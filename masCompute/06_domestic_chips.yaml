@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: DaemonSet # DaemonSet: 确保集群里的每一台机器都运行一个这样的 Pod
+metadata:
+  name: ascend-device-plugin-daemonset
+  namespace: kube-system # 必须运行在系统命名空间
+  labels:
+    component: ascend-device-plugin
+spec:
+  selector:
+    matchLabels:
+      component: ascend-device-plugin
+  template:
+    metadata:
+      labels:
+        component: ascend-device-plugin
+    spec:
+      # 容忍所有污点：因为 NPU 节点通常为了不让普通 Pod 调度上去，
+      # 会打上 "NoSchedule" 的污点。Device Plugin 必须能容忍这个污点才能跑上去干活。
+      tolerations:
+        - operator: Exists
+      containers:
+        - image: ascender/ascend-k8s-device-plugin:v5.0.0
+          name: ascend-device-plugin-container
+          securityContext:
+            # 【关键】特权模式：必须开启！
+            # 因为它需要直接访问宿主机的 /dev/davinci* 设备文件。
+            # 普通容器是看不到物理硬件的，只有特权容器可以。
+            privileged: true
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: device-plugin
+          hostPath:
+            # Device Plugin 注册机制：
+            # 这个 Pod 启动后，会在这个目录放一个 socket 文件。
+            # Kubelet 会扫描这个目录，发现新 socket 后，就通过 gRPC 询问：
+            # "哥们，你那是啥硬件？有多少个？"
+            # 插件回答："我是华为 NPU，有 8 个。"
+            # 然后 K8s Node 上就会多出 huawei.com/Ascend910: 8 这个资源。
+            path: /var/lib/kubelet/device-plugins
+---
+# 下面也就是寒武纪 (Cambricon) 的配置，逻辑一模一样
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cambricon-device-plugin-daemonset
+  namespace: kube-system
+  labels:
+    component: cambricon-device-plugin
+spec:
+  selector:
+    matchLabels:
+      component: cambricon-device-plugin
+  template:
+    metadata:
+      labels:
+        component: cambricon-device-plugin
+    spec:
+      tolerations:
+        - operator: Exists
+      containers:
+        - image: cambricon/mlu-k8s-device-plugin:v3.1.2
+          name: cambricon-device-plugin-container
+          securityContext:
+            privileged: true # 同样需要特权去访问 /dev/cambricon_ctl
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins

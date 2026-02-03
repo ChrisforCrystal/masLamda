@@ -35,11 +35,21 @@ spec:
           annotations:
             # 【关键】Worker 也要绑定同一个队列
             volcano.sh/queue-name: "team-search"
+            # 【关键】挂载 RDMA 网络 (Multus CNI)
+            k8s.v1.cni.cncf.io/networks: rdma-net
         spec:
           schedulerName: volcano # 集成 Volcano
           containers:
             - name: ray-worker
               image: rayproject/ray:2.9.0-py310-gpu
+              env:
+                # --- NCCL 性能调优参数 ---
+                - name: NCCL_SOCKET_IFNAME
+                  value: "net1"
+                - name: NCCL_IB_DISABLE
+                  value: "0"
+                - name: NCCL_DEBUG
+                  value: "INFO"
               resources:
                 limits:
                   # Integration: Layer 2 - Hami vGPU
@@ -86,5 +96,31 @@ spec:
           tolerations:
             # 华为 NPU 节点的污点（Taint），通常不同于 NVIDIA
             - key: "huawei.com/Ascend910"
+              operator: "Exists"
+              effect: "NoSchedule"
+    # Group 3: Cambricon MLU Workers (寒武纪 NPU)
+    - replicas: 2
+      minReplicas: 0
+      maxReplicas: 5
+      groupName: mlu-group
+      rayStartParams: {}
+      template:
+        metadata:
+          annotations:
+            volcano.sh/queue-name: "team-search"
+        spec:
+          schedulerName: volcano
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.9.0-py310
+              resources:
+                limits:
+                  cambricon.com/mlu: "1"
+                requests:
+                  cpu: "4"
+                  memory: "16Gi"
+                  cambricon.com/mlu: "1"
+          tolerations:
+            - key: "cambricon.com/mlu"
               operator: "Exists"
               effect: "NoSchedule"

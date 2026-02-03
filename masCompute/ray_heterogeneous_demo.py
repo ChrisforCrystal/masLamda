@@ -39,11 +39,25 @@ def run_on_ascend():
     # a = torch.randn(1000, 1000).to(device)
     return "Ascend Success"
 
+# --- Task 3: Run on Cambricon MLU ---
+# 请求寒武纪 MLU 资源
+@ray.remote(resources={"cambricon.com/mlu": 1})
+def run_on_mlu():
+    try:
+        import torch_mlu
+        device_name = torch.mlu.get_device_name(0)
+    except ImportError:
+        device_name = "Mock MLU (No Driver Found)"
+        
+    print(f"🔵 [Cambricon] Running on Device: {device_name}")
+    return "MLU Success"
+
 # Submit Tasks
 print("\nDispatcher: Submitting tasks to heterogeneous workers...")
 future_nvidia = run_on_nvidia.remote()
 future_ascend = run_on_ascend.remote()
+future_mlu = run_on_mlu.remote()
 
 # Wait for results
-results = ray.get([future_nvidia, future_ascend])
+results = ray.get([future_nvidia, future_ascend, future_mlu])
 print(f"\n✅ All Tasks Completed: {results}")

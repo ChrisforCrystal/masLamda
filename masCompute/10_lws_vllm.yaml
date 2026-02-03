@@ -1,0 +1,156 @@
+# ==========================================
+# 1. Kueue 资源模型 (定义两种卡：H100 和 A10)
+# ==========================================
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: flavor-h100
+spec:
+  nodeLabels:
+    accelerator/type: nvidia-h100 # 对应物理节点标签
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: flavor-a10
+spec:
+  nodeLabels:
+    accelerator/type: nvidia-a10
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: cluster-gpu-pool
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+    - coveredResources: ["nvidia.com/gpu"]
+      flavors:
+        # 定义两种口味的配额
+        - name: flavor-h100
+          resources:
+            - name: "nvidia.com/gpu"
+              nominalQuota: 8 # H100 只有 8 张
+        - name: flavor-a10
+          resources:
+            - name: "nvidia.com/gpu"
+              nominalQuota: 20 # A10 有 20 张
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  namespace: inference-prod
+  name: team-search-inference
+spec:
+  clusterQueue: cluster-gpu-pool
+
+---
+# ==========================================
+# 2. Part A: Prefill Set (用 H100)
+# ==========================================
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: prefill-pool
+  namespace: inference-prod
+  labels:
+    app: vllm-prefill
+    # Kueue 接管
+    kueue.x-k8s.io/queue-name: team-search-inference
+    # 【关键】告诉 Kueue 我要 H100
+    kueue.x-k8s.io/resource-flavor: flavor-h100
+spec:
+  replicas: 1
+  leaderWorkerTemplate:
+    size: 2 # H100 比较强，2卡 TP 即可
+    restartPolicy: RecreateGroupOnPodRestart
+    leaderTemplate:
+      metadata:
+        labels:
+          role: leader
+      spec:
+        containers:
+          - name: vllm-prefill
+            image: vllm/vllm-openai:latest
+            env:
+              - name: INSTANCE_ROLE
+                value: "PREFILL"
+            command:
+              - sh
+              - -c
+              - |
+                export MASTER_ADDR=${LWS_LEADER_ADDRESS}
+                export WORLD_SIZE=${LWS_GROUP_SIZE}
+                export RANK=0
+                # 假设 vLLM 支持 --enable-prefix-caching
+                python3 -m vllm.entrypoints.openai.api_server --tensor-parallel-size 2
+            resources:
+              limits:
+                nvidia.com/gpu: "1"
+    workerTemplate:
+      spec:
+        containers:
+          - name: vllm-prefill-worker
+            image: vllm/vllm-openai:latest
+            command:
+              [
+                "sh",
+                "-c",
+                "export MASTER_ADDR=${LWS_LEADER_ADDRESS}; export WORLD_SIZE=${LWS_GROUP_SIZE}; export RANK=${LWS_WORKER_INDEX}; python3 -m vllm.engine.ray_utils",
+              ]
+            resources:
+              limits:
+                nvidia.com/gpu: "1"
+
+---
+# ==========================================
+# 3. Part B: Decode Set (用 A10)
+# ==========================================
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: decode-pool
+  namespace: inference-prod
+  labels:
+    app: vllm-decode
+    kueue.x-k8s.io/queue-name: team-search-inference
+    # 【关键】告诉 Kueue 我要 A10
+    kueue.x-k8s.io/resource-flavor: flavor-a10
+spec:
+  replicas: 2 # 搞两组 Decode 实例
+  leaderWorkerTemplate:
+    size: 4 # A10 显存小，通常需要 4 卡 TP
+    restartPolicy: RecreateGroupOnPodRestart
+    leaderTemplate:
+      spec:
+        containers:
+          - name: vllm-decode
+            image: vllm/vllm-openai:latest
+            env:
+              - name: INSTANCE_ROLE
+                value: "DECODE"
+            command:
+              - sh
+              - -c
+              - |
+                export MASTER_ADDR=${LWS_LEADER_ADDRESS}
+                export WORLD_SIZE=${LWS_GROUP_SIZE}
+                export RANK=0
+                python3 -m vllm.entrypoints.openai.api_server --tensor-parallel-size 4
+            resources:
+              limits:
+                nvidia.com/gpu: "1"
+    workerTemplate:
+      spec:
+        containers:
+          - name: vllm-decode-worker
+            image: vllm/vllm-openai:latest
+            command:
+              [
+                "sh",
+                "-c",
+                "export MASTER_ADDR=${LWS_LEADER_ADDRESS}; export WORLD_SIZE=${LWS_GROUP_SIZE}; export RANK=${LWS_WORKER_INDEX}; python3 -m vllm.engine.ray_utils",
+              ]
+            resources:
+              limits:
+                nvidia.com/gpu: "1"

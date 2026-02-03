@@ -1,0 +1,92 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-pd-separation-cluster
+  namespace: ray-system
+spec:
+  rayVersion: "2.9.0"
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+    template:
+      spec:
+        schedulerName: volcano
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.9.0-py310
+            resources:
+              requests:
+                cpu: "2"
+                memory: "4Gi"
+
+  workerGroupSpecs:
+    # --- Group A: Prefill Workers (High Compute) ---
+    # 这一组专门用来做 Prefill，必须分配最强的 H100 卡
+    - replicas: 2
+      groupName: prefill-group
+      rayStartParams: {}
+      template:
+        metadata:
+          annotations:
+            volcano.sh/queue-name: "team-search-prefill" # 专属队列
+            k8s.v1.cni.cncf.io/networks: rdma-net # 必须挂 RDMA
+        spec:
+          schedulerName: volcano
+          # 亲和性：必须调度到标签为 nvidia-h100 的节点上
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: accelerator/type
+                        operator: In
+                        values:
+                          - nvidia-h100-80g
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.9.0-py310-gpu
+              resources:
+                limits:
+                  nvidia.com/gpu: "1" # 用整卡，不用切分，保证算力
+              env:
+                - name: WORKER_ROLE
+                  value: "PREFILL"
+                - name: NCCL_SOCKET_IFNAME
+                  value: "net1"
+
+    # --- Group B: Decode Workers (High Bandwidth / Cost Efficiency) ---
+    # 这一组专门做 Decode，用两张 A10 或者一张 L40S 这种便宜卡
+    - replicas: 4 # 数量通常要比 Prefill 多，因为 Decode 时间长
+      groupName: decode-group
+      rayStartParams: {}
+      template:
+        metadata:
+          annotations:
+            volcano.sh/queue-name: "team-search-decode"
+            k8s.v1.cni.cncf.io/networks: rdma-net # 也必须挂 RDMA
+        spec:
+          schedulerName: volcano
+          # 亲和性：调度到 A10 节点
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: accelerator/type
+                        operator: In
+                        values:
+                          - nvidia-a10-24g
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.9.0-py310-gpu
+              resources:
+                limits:
+                  nvidia.com/gpu: "1"
+              env:
+                - name: WORKER_ROLE
+                  value: "DECODE"
+                  # Decode 节点没必要开 P2P 互联，因为通常是单卡推理
+                - name: NCCL_P2P_DISABLE
+                  value: "1"
+                - name: NCCL_SOCKET_IFNAME
+                  value: "net1"

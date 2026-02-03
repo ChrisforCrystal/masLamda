@@ -1,0 +1,64 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: ray-fsdp-training-job
+  namespace: ray-system
+spec:
+  # 自动提交并运行训练脚本
+  entrypoint: python examples/ray_fsdp_train.py
+
+  # 运行时环境配置
+  runtimeEnvYAML: |
+    working_dir: "https://github.com/my-repo/masLambda/archive/refs/heads/main.zip" # 假设代码在远程仓库
+    pip:
+      - psutil
+      - torch
+      - ray[train]
+
+  rayClusterSpec:
+    rayVersion: "2.9.0"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          schedulerName: volcano
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.9.0-py310-gpu
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: "8Gi"
+
+    workerGroupSpecs:
+      # --- FSDP Training Workers ---
+      - replicas: 4 # 对应脚本里的 num_workers=4
+        groupName: gpu-group
+        rayStartParams: {}
+        template:
+          metadata:
+            annotations:
+              # [关键] 挂载 RDMA 网卡 (Multus CNI)
+              k8s.v1.cni.cncf.io/networks: rdma-net
+          spec:
+            schedulerName: volcano
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.9.0-py310-gpu
+                resources:
+                  limits:
+                    nvidia.com/gpu: "1"
+                    memory: "32Gi" # 训练此时需要大内存
+                env:
+                  # [关键] 告诉 NCCL 走 net1 接口
+                  - name: NCCL_SOCKET_IFNAME
+                    value: "net1"
+                  # 启用 IB/RoCE
+                  - name: NCCL_IB_DISABLE
+                    value: "0"
+                  - name: NCCL_DEBUG
+                    value: "INFO"
+                  # 自动探测拓扑
+                  - name: NCCL_TOPOLOGY
+                    value: "AUTOMATIC"
