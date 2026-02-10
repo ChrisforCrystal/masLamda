@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: demo-device-plugin
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: demo-device-plugin
+  template:
+    metadata:
+      labels:
+        name: demo-device-plugin
+    spec:
+      containers:
+        - name: plugin
+          image: python:3.9-slim # In reality, you'd build a custom image with grpc installed
+          command: ["python", "/app/plugin.py"]
+          securityContext:
+            privileged: true # Often needed for device access, though not strictly for this logic
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: config
+              mountPath: /etc/demo-resource
+            - name: code
+              mountPath: /app
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+        - name: config
+          configMap:
+            name: demo-resource-config
+        - name: code
+          configMap:
+            name: demo-plugin-code
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-resource-config
+  namespace: kube-system
+data:
+  config.json: |
+    {
+      "count": 5
+    }

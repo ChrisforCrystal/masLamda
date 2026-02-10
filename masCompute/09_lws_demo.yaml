@@ -1,0 +1,48 @@
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: lws-gpu-demo
+  namespace: default
+spec:
+  replicas: 1
+  leaderWorkerTemplate:
+    size: 2 # 1 leader + 1 worker
+    restartPolicy: RecreateGroupOnPodRestart
+    leaderTemplate:
+      metadata:
+        labels:
+          role: leader
+      spec:
+        schedulerName: volcano
+        containers:
+          - name: leader
+            image: nvidia/cuda:12.1.0-base-ubuntu22.04
+            command:
+              [
+                "/bin/sh",
+                "-c",
+                "echo 'Leader GPU Check:'; nvidia-smi; sleep 3600",
+              ]
+            resources:
+              limits:
+                vke.volcengine.com/mgpu-core: "50" # 50% of a GPU core
+                vke.volcengine.com/mgpu-memory: "4096" # 4GB Memory
+    workerTemplate:
+      metadata:
+        labels:
+          role: worker
+      spec:
+        schedulerName: volcano
+        containers:
+          - name: worker
+            image: nvidia/cuda:12.1.0-base-ubuntu22.04
+            command:
+              [
+                "/bin/sh",
+                "-c",
+                "echo 'Worker GPU Check:'; nvidia-smi; sleep 3600",
+              ]
+            resources:
+              limits:
+                vke.volcengine.com/mgpu-core: "50"
+                vke.volcengine.com/mgpu-memory: "4096"
